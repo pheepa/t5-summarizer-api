@@ -1,0 +1,52 @@
+version: '3'
+services:
+  app:
+    build:
+      context: .
+      dockerfile: app/Dockerfile
+    command: python main.py
+    volumes:
+      - .:/code
+    ports:
+      - "80:80"
+  celery_worker:
+    build:
+      context: .
+      dockerfile: celery_worker/Dockerfile
+    command: celery -A celery_worker.worker worker -l info --concurrency 1 -P solo
+    environment:
+      - BROKER_URI=amqp://rmuser:rmpassword@rabbitmq:5672//
+#      - BACKEND_URI=rpc://
+      - BACKEND_URI=db+sqlite:///results.db
+      - MODEL_PATH=celery_worker/models/t5-base-jira-pubmed-finetuned
+      - MAX_SOURCE_LENGTH=2048
+      - MAX_TARGET_LENGTH=256
+      - TASK_PREFIX=summarize
+      - DEVICE=cpu
+    volumes:
+      - .:/code
+    depends_on:
+      - app
+      - rabbitmq
+      - db
+  rabbitmq:
+    image: rabbitmq:3.11-management-alpine
+    hostname: rabbitmq
+    ports:
+      - "15672:15672"
+      - "5672:5672"
+    environment:
+      - RABBITMQ_DEFAULT_USER=rmuser
+      - RABBITMQ_DEFAULT_PASS=rmpassword
+    healthcheck:
+      test: [ "CMD", "nc", "-z", "localhost", "5672" ]
+      interval: 5s
+      timeout: 15s
+      retries: 1
+  db:
+    image: nouchka/sqlite3:latest
+    volumes:
+      - ./db:/db
+#    restart: always
+volumes:
+  code:
